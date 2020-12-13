@@ -6,8 +6,8 @@ Created on Sun Sep  6 17:03:24 2020
 @author: student
 """
 
+from pymongo import MongoClient
 import pandas as pd
-import numpy as np
 import tkinter as tk
 from tkcalendar import DateEntry, Calendar
 import datetime
@@ -15,18 +15,61 @@ import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# fb = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/facebook.csv', index_col=0)
 
-# print(fb.head())
+# Retrieve documents from MongoDB database
 
+cluster = MongoClient("mongodb+srv://admin:dsgs2020@cluster0.avwzd.mongodb.net/expense_analysis?retryWrites=true&w=majority")
+db = cluster["expense_analysis"]
+collection = db["expense"]
+collection_fixed = db["fixed"]
+
+exp_data = []
 col_names = ['Date', 'Category', 'Amount']
-exp_rec = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv')
+col_names_fixed = ['Rent', 'Health Insurance', 'Mobile Fee']
+
+results = collection.find()
+new_id = collection.find().count()
+
+for result in results:
+    # print(result["Date"])
+    values = [result["Date"], result["Category"], result["Amount"]]
+    zipped = zip(col_names, values)
+    a_row = dict(zipped)
+    # print(a_row)
+    exp_data.append(a_row)
+
+exp_rec = pd.DataFrame(exp_data, columns=col_names)
 print(exp_rec)
+
+
+# Retrieve fixed expenses
+
+result_f = collection_fixed.find({"_id": 0})
+fixed_data = []
+
+for result in result_f:
+    values_fixed = [result["Rent"], result["HealthInsurance"], result["MobileFee"]]
+    zipped_fixed = zip(col_names_fixed, values_fixed)
+    row_fixed = dict(zipped_fixed)
+    fixed_data.append(row_fixed)
+    
+
+fixed_exp = pd.DataFrame(fixed_data, columns=col_names_fixed)
+
+fixed_total = fixed_exp.Rent[0] + fixed_exp['Health Insurance'][0] + fixed_exp['Mobile Fee'][0]
+
+
+
+# Old csv file retrieval
+
+# exp_rec = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv')
+# print(exp_rec)
 
 #exp_rec = exp_rec.drop(exp_rec[exp_rec.Category == "Rent"].index)
 #exp_rec.to_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv', index=False)
 
 # ---- NEW INPUT TEMPLATE ---
+
 #test = {'Date': ['2020-10-24'], 'Category': ['Grocery'], 'Amount': [49.14]}
 #test_df = pd.DataFrame(test, columns=col_names)
 #combined = test_df.append(exp_rec, ignore_index=True)
@@ -123,7 +166,7 @@ def check_exp_val():
     
     boolean = False
     try:
-        exp_int = int(entry_amount.get())
+        exp_int = float(entry_amount.get())
         boolean = True
     except ValueError:
         text_exception.set("* WARNING: Please enter a number")
@@ -132,6 +175,9 @@ def check_exp_val():
         subcatPage()
     
 def subcatValue(val):
+    global new_id
+    global exp_rec
+    
     input_date = calendar.get_date()
     print(input_date)
     datetimetgt = datetime.datetime.strptime(input_date, '%m/%d/%y')
@@ -141,13 +187,22 @@ def subcatValue(val):
     print(subcategory)
     amount = float(entry_amount.get())
     print(amount)
-    #store to csv
-    new = {'Date': [dateChosen], 'Category': [subcategory], 'Amount': [amount]}
-    new_df = pd.DataFrame(new, columns=col_names)
-    combined = new_df.append(exp_rec, ignore_index=True)
-    print(combined.head())
-    combined.to_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv', index=False)
+    
+    #store to to database
+    new_post = {"_id": new_id, 'Date': str(dateChosen), 'Category': subcategory, 'Amount': amount}
+    new_row = {'Date': [dateChosen], 'Category': [subcategory], 'Amount': [amount]}
+    collection.insert_one(new_post)
+    new_id +=1
+    new_df = pd.DataFrame(new_row, columns=col_names)
+    exp_rec = new_df.append(exp_rec, ignore_index=True)
+    print(exp_rec)
     mainPage()
+   
+    
+    # Old code: store to csv
+    # combined.to_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv', index=False)
+    
+    
 
 def statsPage():
     frame_stat.place(relx=0.5, rely=0.1, relwidth=0.8, relheight=0.8, anchor='n')
@@ -155,26 +210,32 @@ def statsPage():
     
 
 def stat_basic_current():
+    global exp_rec
+    global fixed_exp
+    global fixed_total
+    
     #decide which month's statement to present
     
     month_chosen = today.month
     
-    # if (month=='current'):
-    #     # Current Statement
-    #     month_chosen = today.month
-        
-    # else:
-    #     # Last Statement
-    #     month_chosen = today.month - 1
         
     print(month_chosen)
     
     frame4.place(relx=0.5, rely=0.1, relwidth=0.8, relheight=0.8, anchor='n')
     frame4.tkraise()
-    exp_rec = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv')
+    
+    # exp_rec = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv')
     
     start_date = datetime.datetime(today.year, month_chosen, 1)
-    end_date = datetime.datetime(today.year, month_chosen+1, 1)
+    
+    if (month_chosen != 12):
+        next_month = month_chosen+1
+        next_year = today.year
+    else:
+        next_month = 1
+        next_year = today.year+1
+        
+    end_date = datetime.datetime(next_year, next_month, 1)
     # Expense filtered by month
     exp_filtered = exp_rec[ (exp_rec['Date'] >= start_date.strftime('%Y-%m-%d')) 
                            & (exp_rec['Date'] < end_date.strftime('%Y-%m-%d'))]
@@ -209,19 +270,19 @@ def stat_basic_current():
     ax1.set_title('Monthly Expense Trend- Month: ' + str(month_chosen))
     
     # Retrieve fixed expense
-    fixed_exp = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/fixed.csv')
-    fixed_total = fixed_exp.Rent[0] + fixed_exp['Health Insurance'][0] 
-    + fixed_exp['Mobile Fee'][0]
+    # fixed_exp = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/fixed.csv')
+    
     
     var_exp = exp_filtered['Amount'].sum()
     
+
     # Summary stats
     label_total = tk.Label(frame4, text="Total Amount: $ "
                            +str(round(fixed_total + var_exp ,2)))
     label_total.place(relx=0.8, rely=0.1, anchor='n')
     label_fixed = tk.Label(frame4, text="Fixed Expense: $ " + str(fixed_total))
     label_fixed.place(relx=0.8, rely=0.2, anchor='n')
-    label_variable = tk.Label(frame4, text="Variable Expense: $ " + str(var_exp))
+    label_variable = tk.Label(frame4, text="Variable Expense: $ " + str(round(var_exp)))
     label_variable.place(relx=0.8, rely=0.3, anchor='n')
     
     btn_backtoprev_stat2 = tk.Button(frame4, text="BACK", highlightbackground='#b3e6ff', 
@@ -234,18 +295,30 @@ def stat_basic_current():
 
 
 def stat_basic_prev():
+    global exp_rec
+    global fixed_rec
+    global fixed_total
+    
     month_chosen = today.month-1
     
     frame5.place(relx=0.5, rely=0.1, relwidth=0.8, relheight=0.8, anchor='n')
     frame5.tkraise()
-    exp_rec_2 = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv')
+    # exp_rec_2 = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/expense.csv')
     
     start_date = datetime.datetime(today.year, month_chosen, 1)
-    end_date = datetime.datetime(today.year, month_chosen+1, 1)
+    
+    if (month_chosen != 12):
+        next_month = month_chosen+1
+        next_year = today.year
+    else:
+        next_month = 1
+        next_year = today.year+1
+        
+    end_date = datetime.datetime(next_year, next_month, 1)
     
     # Expense filtered by month
-    exp_filtered_2 = exp_rec[ (exp_rec_2['Date'] >= start_date.strftime('%Y-%m-%d')) 
-                           & (exp_rec_2['Date'] < end_date.strftime('%Y-%m-%d'))]
+    exp_filtered_2 = exp_rec[ (exp_rec['Date'] >= start_date.strftime('%Y-%m-%d')) 
+                           & (exp_rec['Date'] < end_date.strftime('%Y-%m-%d'))]
     
     
     # Expense grouped by Category
@@ -277,19 +350,19 @@ def stat_basic_prev():
     ax3.set_title('Monthly Expense Trend- Month: ' + str(month_chosen))
     
     # Retrieve fixed expense
-    fixed_exp_2 = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/fixed.csv')
-    fixed_total_2 = fixed_exp_2.Rent[0] + fixed_exp_2['Health Insurance'][0] 
-    + fixed_exp_2['Mobile Fee'][0]
-    
+    # fixed_exp_2 = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/fixed.csv')
+    # fixed_total_2 = fixed_exp_2.Rent[0] + fixed_exp_2['Health Insurance'][0] 
+    # + fixed_exp_2['Mobile Fee'][0]
+     
     var_exp_2 = exp_filtered_2['Amount'].sum()
     
     # Summary stats
     label_total_2 = tk.Label(frame5, text="Total Amount: $ "
-                           +str(round(fixed_total_2 + var_exp_2 ,2)))
+                           +str(round(fixed_total + var_exp_2 ,2)))
     label_total_2.place(relx=0.8, rely=0.1, anchor='n')
-    label_fixed_2 = tk.Label(frame5, text="Fixed Expense: $ " + str(fixed_total_2))
+    label_fixed_2 = tk.Label(frame5, text="Fixed Expense: $ " + str(fixed_total))
     label_fixed_2.place(relx=0.8, rely=0.2, anchor='n')
-    label_variable_2 = tk.Label(frame5, text="Variable Expense: $ " + str(var_exp_2))
+    label_variable_2 = tk.Label(frame5, text="Variable Expense: $ " + str(round(var_exp_2)))
     label_variable_2.place(relx=0.8, rely=0.3, anchor='n')
     
     btn_backtoprev_stat2_2 = tk.Button(frame5, text="BACK", highlightbackground='#b3e6ff', 
@@ -342,16 +415,26 @@ def check_setting(rent, insurance, mobile):
         
         
 def save_setting(rent, insurance, mobile):
+    global col_names_fixed
+    global collection_fixed
+    global fixed_total
     #print(rent)
     #print(insurance)
     #print(mobile)
-    col_names_fixed = ['Rent', 'Health Insurance', 'Mobile Fee']
-    fixed = {'Rent': [rent], 'Health Insurance': [insurance], 'Mobile Fee': [mobile]}
-    fixed_df = pd.DataFrame(fixed, columns=col_names_fixed)
-    fixed_df.to_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/fixed.csv', index=False)
-    print(fixed_df)
-    check = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/fixed.csv')
-    print(check.head())
+    
+    # Old csv file
+    
+    # fixed = {'Rent': [rent], 'Health Insurance': [insurance], 'Mobile Fee': [mobile]}
+    # fixed_df = pd.DataFrame(fixed, columns=col_names_fixed)
+    # fixed_df.to_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/fixed.csv', index=False)
+    # print(fixed_df)
+    # check = pd.read_csv('/Users/student/Desktop/CS-learning/Python/Python-Stats/fixed.csv')
+    # print(check.head())
+    
+    collection_fixed.update_one({"_id": 0}, {"$set": {"Rent": rent, 
+                                                      "HealthInsurance": insurance, 
+                                                      "MobileFee": mobile}})
+    fixed_total = rent + insurance + mobile
     mainPage()
             
         
