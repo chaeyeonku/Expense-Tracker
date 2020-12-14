@@ -1,1 +1,1 @@
-web: gunicorn -b :$PORT app:budget
+web: gunicorn mysite.wsgi --log-file -
